@@ -86,7 +86,7 @@ def fold_spectrum(data: np.ndarray, vmax, offset: int = 0) -> np.ndarray:
     vlist = np.linspace(-vmax, vmax, 512)[:len(left)]
     return folded, left, right, vlist
 
-def read_ironanalytics_data(folder_path, file_id, offset = 0) -> spectrum_data:
+def read_ironanalytics_data(folder_path, file_id, offset = 0, plot = False) -> spectrum_data:
     """
     Reads calibration data and metadata from .txt files, returns an instance of CalibrationSpectrum.
     file_id could be something like 'A00043', folder_path is the folder containing the data files.
@@ -108,6 +108,7 @@ def read_ironanalytics_data(folder_path, file_id, offset = 0) -> spectrum_data:
         data_file = os.path.join(folder_path, f"{file_id}.txt")
         metadata = get_ironanalytics_metadata(meta_file)
         data = pd.read_csv(data_file, sep="\t", header=None)[0].to_numpy()
+        description = metadata.get("description")
 
 
     # Parse times
@@ -122,14 +123,26 @@ def read_ironanalytics_data(folder_path, file_id, offset = 0) -> spectrum_data:
     
     data_folded, data_left, data_right, vlist = fold_spectrum(data, vmax, offset=offset)
 
+    if plot:
+        plt.figure(figsize=(6,4))
+        plt.plot(vlist, data_folded/2, label='Folded Spectrum')
+        plt.plot(vlist, data_left, label='Left Side', linestyle='--')
+        plt.plot(vlist, data_right, label='Right Side', linestyle='--')
+        plt.xlabel('Velocity (mm/s)')
+        plt.ylabel('Counts')
+        plt.title(f'{file_id}, {description}')
+        plt.legend()
+        plt.grid()
+        plt.show()
+
 
     return spectrum_data(
-        name=file_id,
-        description = metadata.get("description"),
-        start_time= start,
+        name = file_id,
+        description = description,
+        start_time = start,
         total_time = total_time,
         velocity_max = vmax,
-        data=data,
+        data = data,
         data_folded = data_folded,
         data_left = data_left,
         data_right = data_right,

@@ -15,6 +15,7 @@ pip install -e .
 - **`mossbauer_analysis/`**: Main package containing classes for theory modeling and data analysis
 - **`examples/`**: Data analysis and theory calculation examples, including SAW paper plot examples  
 - **`data/`**: Raw experimental spectra and calibration data
+- **`notebooks/`**: Analysis notebooks, and experiment theory calculations 
 - **`mossbauer_theory_old_module/`**: Legacy theory code from Joey's original implementation
 
 
