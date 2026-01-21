@@ -5,6 +5,7 @@ from scipy.special import jv
 import xraydb 
 from datetime import datetime
 import matplotlib.pyplot as plt
+from numpy.polynomial.legendre import leggauss
 
 ############################################     CONSTANTS   #########################################################
 
@@ -36,7 +37,6 @@ def get_current_activity(half_life_days, activity, date, nowdate=None):
     tdiff_seconds = (nowdate - datetime.strptime(date, '%Y%m%d')).total_seconds()
     return activity*((0.5)**(tdiff_seconds/(3600*24)/half_life_days))
 
-
 def calculate_photon_rate(activity_Ci,relative_intensity):
     return 3.7e10 * activity_Ci * relative_intensity
 
@@ -48,6 +48,25 @@ def _lorentzian_s(x, x0, gamma):
 
 def _lorentzian_a(x, x0, gamma):
     return (gamma/2)**2/( ((x-x0))**2 + (gamma/2)**2)
+
+
+# point source
+def compute_solid_angle(r, d):
+    return 2*np.pi*(1-d/np.sqrt(r**2 + d**2))
+
+def E(x,y,D):
+    return D/(x**2 + y**2 + D**2)**(3/2)
+
+def thickness_effective(x, y, D):
+    return np.sqrt(x**2 + y**2 + D**2)/D
+
+def quartz_transmission(x, y, D, t=200e-6):
+
+    t_eff = t*np.sqrt(x**2 + y**2 + D**2)/D
+    mu = xraydb.material_mu('Quartz', 14.4e3)  * thickness_effective(x, y, D) * 100  # 100 is for conversion units
+
+    return np.exp(-mu) 
+
 
 
 ############################################     SOURCE CLASSES   #########################################################
@@ -90,7 +109,6 @@ class CobaltFe:
         self.date = None
         self.half_life = 272
         self.mossbauer_relative_intensity = 0.0916
-        self.mossbauer_detector_efficiency = 0.1 #At 14.4, Incldes solid angle
         self.M = 57e-3 / Na
         self.element = 'Fe'
         self.alpha = 8.17
@@ -164,7 +182,71 @@ class KFeCy:
 
         
     
+
+
+############################################     DETECTOR CLASSES   #########################################################
+class epix_camera:
+    def __init__(self):
+
+        self.H = 35.2e-3  # camera height
+        self.L = 38.4e-3  # camera width
+        self.NpixelsH = 352  # number of pixels in height
+        self.NpixelsL = 384  # number of pixels in width
         
+        self.distance_sd = 32.6e-3  # source-detector distance in meters
+        self.distance_sa = 21.8e-3  # source-absorber distance in meters
+        self.source_radius = 3e-3  # source radius in meters
+        self.absorber_radius = 25.4e-3  # absorber radius in meters
+
+        self.efficiency_14keV = 0.9  # detector efficiency at 14.4 keV
+        self.quartz_thickness_m = 200e-6  # quartz window thickness in meters
+        self.snr14keV = 10  # signal to noise ratio at 14.4 keV
+        
+        self.update_params()
+    
+    def update_params(self):
+        self.overlap_radious = self.source_radius*(self.distance_sd/self.distance_sa-1)
+        self.x = np.linspace(-self.L/2, self.L/2, self.NpixelsL)
+        self.y = np.linspace(-self.H/2, self.H/2, self.NpixelsH)
+        self.dx = self.x[1]-self.x[0]
+        self.dy = self.y[1]-self.y[0]
+        self.X, self.Y = np.meshgrid(self.x, self.y)
+        self.pixel_solid_angle_map = E(self.X, self.Y, self.distance_sd)*self.dx*self.dy
+        self.quartz_transmission_map = quartz_transmission(self.X, self.Y, self.distance_sd, self.quartz_thickness_m)
+        self.pixel_efficiency_map = self.pixel_solid_angle_map * self.efficiency_14keV *self.quartz_transmission_map
+        self.total_efficiency = self.pixel_efficiency_map.sum()*self.efficiency_14keV
+        self.source_detector_solid_angle = self.pixel_solid_angle_map.sum()
+        self.detector_area = self.L * self.H
+        self.detector_radius = np.sqrt(self.detector_area/np.pi)
+        self.source_detector_solid_angle2 = compute_solid_angle(self.detector_radius, self.distance_sd)
+        self.source_absorber_solid_angle = compute_solid_angle(self.absorber_radius, self.distance_sa)
+        self.absorber_detector_solid_angle = compute_solid_angle(self.detector_radius, self.distance_sd - self.distance_sa)
+
+
+class SDD_detector:
+    def __init__(self):
+
+        self.active_area = 17e-6  # active area in mm^2
+        self.distance_sa = 95e-3  # source-absorber distance in meters
+        self.distance_sd = 100-3  # source-detector distance in meters
+        self.absorber_radius = 20e-3  # absorber radius in meters
+        
+        self.efficiency_14keV = 0.8  # detector efficiency at 14.4 keV
+        self.snr14keV = 7  # signal to noise ratio at 14.4 keV
+        self.quartz_thickness_m = 0e-6  # quartz window thickness in meters
+        
+        self.update_params()
+    
+    def update_params(self):
+        self.pixel_solid_angle = self.active_area/ (self.distance_sd ** 2)
+        self.quartz_transmission = quartz_transmission(0, 0, self.distance_sd, self.quartz_thickness_m)
+        self.total_efficiency = self.pixel_solid_angle * self.efficiency_14keV * self.quartz_transmission
+        self.detector_area = self.active_area
+        self.detector_radius = np.sqrt(self.detector_area/np.pi)
+        self.source_detector_solid_angle = compute_solid_angle(self.detector_radius, self.distance_sd)
+        self.source_absorber_solid_angle = compute_solid_angle(self.detector_radius, self.distance_sd)
+        self.absorber_detector_solid_angle = compute_solid_angle(self.detector_radius, self.distance_sd - self.distance_sa)
+
     
 ###########################################      MOSSBAUER    ######################################################
 
@@ -172,10 +254,11 @@ c=3e8
 
 class Mossbauer:
     
-    def __init__(self, source, absorber):
+    def __init__(self, source, absorber, detector = SDD_detector()):
     
         self.source = source
         self.absorber = absorber
+        self.detector = detector
 
     def source_specrtrum(self, E, v):
         spectrum = 0
@@ -210,17 +293,45 @@ class Mossbauer:
         return res
 
     def resonant_transmission_rate(self, v):
-        res = quad_vec(lambda E: self.resonant_transmission_fraction(E,v), -np.inf, np.inf)[0]
+        res = quad_vec(lambda E: self.resonant_transmission_fraction(E,v), -np.inf, np.inf)[0] * self.non_resonant_attenuation()
         return res
     
     def nonresonant_transmission_rate(self):
-        return (1 - self.source.fs)
+        return (1 - self.source.fs)* self.non_resonant_attenuation()
 
     def total_transmission_rate(self, v):
         return self.nonresonant_transmission_rate() + self.resonant_transmission_rate(v)
 
-    def total_transmission_rate_attenuated(self, v):
-        return self.total_transmission_rate(v) * self.non_resonant_attenuation()
+    
+    #here add reemission and compton offset detected rates
+
+    def compton_offset(self):
+        1*self.non_resonant_attenuation()/self.detector.snr14keV
+
+    def absorbtion_rate(self,v):
+        return (self.source.fs-self.resonant_transmission_rate(v)) * self.detector.source_absorber_solid_angle/(4*np.pi)
+
+    def readiative_branching(self):
+        return 1/(1+self.absorber.alpha)
+    
+    def escape_probability(self):
+        return (1-np.exp(-self.absorber.thickness_normalized))/self.absorber.thickness_normalized
+    
+    def reemission_rate(self,v):
+        return (self.absorbtion_rate(v) *
+                self.readiative_branching() *
+                self.escape_probability() *
+                self.non_resonant_attenuation() *
+                self.detector.absorber_detector_solid_angle/self.detector.source_detector_solid_angle)
+    
+    def compton_offset(self):
+        return 1*self.non_resonant_attenuation()/self.detector.snr14keV
+    
+    def total_spectrum(self, v) :
+        return ( self.total_transmission_rate(v) 
+                + self.reemission_rate(v) 
+                + self.compton_offset()
+               )
 
     def epsilon(self,t):
         return 1-np.exp(-t/2)*jv(0,1j*t/2).real
@@ -235,7 +346,7 @@ if __name__ == "__main__":
     moss = Mossbauer(source, absorber)
 
     v = np.linspace(-10,10,1000)
-    t = moss.total_transmission_rate1(v)
+    t = moss.total_transmission_rate(v)
     norm = moss.source.mossbauer_photon_rate
 
 
