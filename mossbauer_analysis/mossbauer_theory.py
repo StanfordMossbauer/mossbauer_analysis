@@ -57,13 +57,13 @@ def compute_solid_angle(r, d):
 def E(x,y,D):
     return D/(x**2 + y**2 + D**2)**(3/2)
 
-def thickness_effective(x, y, D):
+def thickness_correction(x, y, D):
     return np.sqrt(x**2 + y**2 + D**2)/D
 
-def quartz_transmission(x, y, D, t=200e-6):
+def quartz_transmission(x, y, D, t_min=200e-6):
 
-    t_eff = t*np.sqrt(x**2 + y**2 + D**2)/D
-    mu = xraydb.material_mu('Quartz', 14.4e3)  * thickness_effective(x, y, D) * 100  # 100 is for conversion units
+    t_eff = t_min*thickness_correction(x, y, D)
+    mu = xraydb.material_mu('Quartz', 14.4e3)  * t_eff * 100  # 100 is for conversion units
 
     return np.exp(-mu) 
 
@@ -211,22 +211,34 @@ class epix_camera:
         self.dx = self.x[1]-self.x[0]
         self.dy = self.y[1]-self.y[0]
         self.X, self.Y = np.meshgrid(self.x, self.y)
-        self.pixel_solid_angle_map = E(self.X, self.Y, self.distance_sd)*self.dx*self.dy
-        self.quartz_transmission_map = quartz_transmission(self.X, self.Y, self.distance_sd, self.quartz_thickness_m)
-        self.pixel_efficiency_map = self.pixel_solid_angle_map * self.efficiency_14keV *self.quartz_transmission_map
-        self.total_efficiency = self.pixel_efficiency_map.sum()*self.efficiency_14keV
-        self.source_detector_solid_angle = self.pixel_solid_angle_map.sum()
+        #geometry
         self.detector_area = self.L * self.H
         self.detector_radius = np.sqrt(self.detector_area/np.pi)
-        self.source_detector_solid_angle2 = compute_solid_angle(self.detector_radius, self.distance_sd)
+        self.source_detector_solid_angle = compute_solid_angle(self.detector_radius, self.distance_sd)
         self.source_absorber_solid_angle = compute_solid_angle(self.absorber_radius, self.distance_sa)
         self.absorber_detector_solid_angle = compute_solid_angle(self.detector_radius, self.distance_sd - self.distance_sa)
+        self.pixel_solid_angle_map = E(self.X, self.Y, self.distance_sd)*self.dx*self.dy
+        self.source_detector_solid_angle2 = self.pixel_solid_angle_map.sum()
+        
+        #Quartz attenuation
+        self.quartz_transmission_map = quartz_transmission(self.X, self.Y, self.distance_sd, self.quartz_thickness_m)
+        self.weighted_quartz_attenuation = np.sum(self.quartz_transmission_map*self.pixel_solid_angle_map)/self.pixel_solid_angle_map.sum()
+        
+        #Efficiency map
+        self.solid_angle_efficiency = self.pixel_solid_angle_map.sum()/(4*np.pi) 
+        self.total_efficiency = self.solid_angle_efficiency * self.efficiency_14keV * self.weighted_quartz_attenuation
+        
+       
+        #Cosine broadening
+        self.photon_angle_map = np.arctan(np.sqrt(self.X**2 + self.Y**2)/self.distance_sd)
+        self.relative_line_broadening_map = 1/np.cos(self.photon_angle_map)
+        self.weighted_broadening = np.sum(self.relative_line_broadening_map*self.pixel_solid_angle_map)/self.pixel_solid_angle_map.sum()
 
 
 class SDD_detector:
     def __init__(self):
 
-        self.active_area = 17e-6  # active area in mm^2
+        self.active_area = 17e-6  # active area in m^2
         self.distance_sa = 95e-3  # source-absorber distance in meters
         self.distance_sd = 100-3  # source-detector distance in meters
         self.absorber_radius = 20e-3  # absorber radius in meters
