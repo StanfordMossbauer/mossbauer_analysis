@@ -16,7 +16,7 @@ class sql_writer:
 			autocommit=True, connection_timeout=5
 		)
 		self.cur = self.conn.cursor()
-
+sql=sql_writer()
 
 
 from datetime import UTC
