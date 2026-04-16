@@ -1,6 +1,6 @@
 import time
 from numpy import *
-
+import numpy as np
 from scipy.interpolate import  splrep, splev
 from scipy.optimize import leastsq, least_squares as least_sqares
 
@@ -8,6 +8,17 @@ from scipy.optimize import curve_fit
 from scipy.optimize import minimize
 
 #import string
+def convert_image(image: np.ndarray) -> np.ndarray:
+    row, col4 = image.shape
+    col = col4 // 4
+    im0 = image[:, 0*col : 1*col]
+    im1 = image[:, 1*col : 2*col]
+    im2 = image[::-1, 2*col : 3*col]
+    im3 = image[::-1, 3*col : 4*col]
+    return np.vstack([np.hstack([im2, im3])
+                      ,np.hstack([im0, im1])])
+
+
 
 def loop(fun, sleep=0):
 	while True:

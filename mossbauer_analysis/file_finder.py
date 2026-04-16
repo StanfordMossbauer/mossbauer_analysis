@@ -13,11 +13,11 @@ UTC= timezone.utc
 
 # We are now using the UTC time for anything, not the local time; 
 # However, the time is not so precise, but it is still useful to have some basic judgements; 
-def parse_file_datetime(fname, data_tz="America/Los_Angeles", L0_bug_fixed=False):
+def parse_file_datetime(fname, data_tz="America/Los_Angeles", L0_bug_fixed=False,L1_interval=357):
     """
     The name of the filename is the time that we start the acquisition, and each hour the appendix of it increases by one; 
     Take caution that the L0 processed data does not apply this rule, because the file length of it is set incorrectly, and I do not want to restart the script; 
-    And also the L1 file is about 7minutes; 
+    And also the L1 file is about 6minutes; 
     """
     base = os.path.basename(fname)
     m = re.match(r".*?(\d{8}_\d{6})\.dat\.(\d+)$", base)
@@ -36,7 +36,7 @@ def parse_file_datetime(fname, data_tz="America/Los_Angeles", L0_bug_fixed=False
         hour_per_index = 270376 / 274996
         dt_local = dt_local + timedelta(hours=(idx - 1) * hour_per_index)
     elif base.upper().startswith("L1"): 
-        dt_local = dt_local + timedelta(seconds=(idx - 1) * 435)
+        dt_local = dt_local + timedelta(seconds=(idx - 1) * L1_interval)
     else:
         dt_local = dt_local + timedelta(hours=idx - 1)
 
@@ -169,3 +169,10 @@ def find_files_in_range(directory='/data/share', t_start= None, t_end= None, pat
 
     matched.sort(key=lambda x: x[0])
     return [p for _, p in matched]
+
+
+                        ##########################
+                        ##### Camera Body ########
+                        ##########################
+                        ##########################
+                        ##########################
