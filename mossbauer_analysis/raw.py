@@ -3,43 +3,22 @@
 
 import os
 import re
-import struct
 import numpy as np
 import bottleneck as bn
 from matplotlib import pyplot as plt
-from datetime import datetime, timedelta
+from base_driver import BaseFrameDriver
 
 
-class epix:
+class epix(BaseFrameDriver):
     """
     Raw data driver + processing helper.
 
-    Per frame layout:
-      8B   SSI
-      32B  original header
-      main image body
-      tail area
 
-    Combined head is treated as 40B:
-      - word0, word1   : SSI
-      - word2 ... word9: original 32B header words
-
-    Direction:
-      - original header word4
-      - combined head word6
+    1% 4Hz, without any signal processing;
+    40 Bytes Head
+    274956 Bytes of Data; 
+    
     """
-
-    SSI_BYTES   = 8
-    HEAD0_BYTES = 32
-    HEAD_BYTES  = SSI_BYTES + HEAD0_BYTES   # 40 bytes
-
-    SSI_U16   = SSI_BYTES // 2              # 4
-    HEAD0_U16 = HEAD0_BYTES // 2            # 16
-    HEAD_U16  = HEAD_BYTES // 2             # 20
-
-    SSI_U32   = SSI_BYTES // 4              # 2
-    HEAD0_U32 = HEAD0_BYTES // 4            # 8
-    HEAD_U32  = HEAD_BYTES // 4             # 10
 
     def __init__(self,
                  fname: str,
@@ -50,7 +29,7 @@ class epix:
                  mean_gain: float = 17.0
                  ) -> None:
 
-        self.fname = fname
+        super().__init__(fname)
         self.nrow = int(nrow)
         self.ncolumn = int(ncolumn)
         self.npix = 4 * self.nrow * self.ncolumn   # 176 x 768
@@ -63,18 +42,13 @@ class epix:
 
         self.tail_u16 = self.frame_u16 - self.HEAD_U16 - self.npix
         if self.tail_u16 < 0:
-            raise ValueError("frame_bytes too small for declared geometry")
+            raise ValueError('frame_bytes too small for declared geometry')
 
-        self._buf = None
-        self._blk = None
-        self._head_u16 = None
-        self._head_u32 = None
         self._data = None
         self._tail = None
         self._direction = None
         self._forward_mask = None
         self._backward_mask = None
-        self._nframes = None
 
         self._t0 = self._parse_timestamp()
 
@@ -82,30 +56,13 @@ class epix:
     # filename timestamp
     # ------------------------------------------------------------------
     def _parse_timestamp(self):
-        m = re.search(r"(\d{8})_(\d{6})", os.path.basename(self.fname))
+        m = re.search(r'(\d{8})_(\d{6})', os.path.basename(self.fname))
         if not m:
             return None
         date_part, time_part = m.groups()
         iso = (f"{date_part[:4]}-{date_part[4:6]}-{date_part[6:8]}T"
                f"{time_part[:2]}:{time_part[2:4]}:{time_part[4:]}")
-        return np.datetime64(iso, "s")
-
-    # ------------------------------------------------------------------
-    # base load
-    # ------------------------------------------------------------------
-    def _load_base(self):
-        if self._blk is not None:
-            return
-
-        byte_size = os.path.getsize(self.fname)
-        if byte_size % self.frame_bytes != 0:
-            raise RuntimeError(
-                f"File length incorrect: {byte_size} is not a multiple of frame_bytes={self.frame_bytes}"
-            )
-
-        self._nframes = byte_size // self.frame_bytes
-        self._buf = np.memmap(self.fname, mode="r", dtype=np.uint16)
-        self._blk = self._buf.reshape(self._nframes, self.frame_u16)
+        return np.datetime64(iso, 's')
 
     def _load_direction_mask(self):
         if self._direction is not None:
@@ -117,15 +74,6 @@ class epix:
     # ------------------------------------------------------------------
     # load head / data / tail
     # ------------------------------------------------------------------
-    def load_head(self):
-        if self._head_u32 is not None:
-            return self._head_u32
-
-        self._load_base()
-        self._head_u16 = self._blk[:, :self.HEAD_U16]
-        self._head_u32 = self._head_u16.view(np.uint32)
-        return self._head_u32
-
     def load_data(self):
         if self._data is not None:
             return self._data
@@ -164,34 +112,18 @@ class epix:
     def head(self):
         return self.load_head()
 
-    @property
-    def nframes(self):
-        self._load_base()
-        return self._nframes
-
     # ------------------------------------------------------------------
     # direct getters
     # ------------------------------------------------------------------
-    def get_head(self, i: int):
-        return self.load_head()[i]
-
     def get_img(self, i: int):
         return self.load_data()[i]
 
     def get_tail(self, i: int):
         return self.load_tail()[i]
 
-    def get_word(self, j: int):
-        return self.load_head()[:, j]
-
     def get_direction(self):
         # combined word6 = original header word4
         return self.load_head()[:, 6]
-
-    def summary_head(self, i: int = 0):
-        h = self.get_head(i)
-        for k, v in enumerate(h):
-            print(f"word{k} = {v}")
 
     def frame(self, i: int, n: int = 1):
         if n == 1:
@@ -201,66 +133,21 @@ class epix:
     # ------------------------------------------------------------------
     # time
     # ------------------------------------------------------------------
-    def get_datetime(self, i: int):
-        h = self.get_head(i)
-        usec = int(h[7])   # combined word7 = original word5
-        sec = int(h[9])    # combined word9 = original word7
-        return datetime.fromtimestamp(sec) + timedelta(microseconds=usec)
-
-    @staticmethod
-    def _decode_time_from_head40(head40: bytes):
-        if len(head40) < 40:
-            raise RuntimeError("head40 too short")
-
-        usec = struct.unpack_from("<I", head40, 28)[0]
-        sec  = struct.unpack_from("<I", head40, 36)[0]
-        dt = datetime.fromtimestamp(sec) + timedelta(microseconds=usec)
-        return dt, sec, usec
-
-    def read_first_time(self):
-        with open(self.fname, "rb") as f:
-            head40 = f.read(self.HEAD_BYTES)
-            if len(head40) < self.HEAD_BYTES:
-                raise RuntimeError("file too short to contain first raw frame header")
-        return self._decode_time_from_head40(head40)[0]
-
-    def read_last_time(self):
-        byte_size = os.path.getsize(self.fname)
-        if byte_size < self.frame_bytes:
-            raise RuntimeError("file too short to contain one complete raw frame")
-
-        nframes = byte_size // self.frame_bytes
-        if nframes == 0:
-            raise RuntimeError("no complete raw frame found")
-
-        last_offset = (nframes - 1) * self.frame_bytes
-
-        with open(self.fname, "rb") as f:
-            f.seek(last_offset)
-            head40 = f.read(self.HEAD_BYTES)
-            if len(head40) < self.HEAD_BYTES:
-                raise RuntimeError("failed to read last raw frame header")
-
-        return self._decode_time_from_head40(head40)[0]
-
-    def read_time_range(self):
-        return (self.read_first_time(), self.read_last_time())
-
     def _time_axis(self):
         N = self.nframes
         if self._t0 is None:
             return np.arange(N, dtype=float) * self.period_s
 
         if self.period_s.is_integer():
-            step = np.timedelta64(int(self.period_s), "s")
+            step = np.timedelta64(int(self.period_s), 's')
             return np.arange(self._t0,
                              self._t0 + step * N,
                              step,
-                             dtype="datetime64[s]")
+                             dtype='datetime64[s]')
 
         step_ns = int(round(self.period_s * 1e9))
-        base = self._t0.astype("datetime64[ns]")
-        return base + np.arange(N, dtype="timedelta64[ns]") * step_ns
+        base = self._t0.astype('datetime64[ns]')
+        return base + np.arange(N, dtype='timedelta64[ns]') * step_ns
 
     def time_series(self):
         return self._time_axis()
@@ -353,7 +240,7 @@ class epix:
         else:
             if gain.shape != (self.nrow, 4 * self.ncolumn):
                 raise ValueError(
-                    f"gain shape must be ({self.nrow}, {4*self.ncolumn}), got {gain.shape}"
+                    f'gain shape must be ({self.nrow}, {4*self.ncolumn}), got {gain.shape}'
                 )
             frame /= gain
 
@@ -362,7 +249,7 @@ class epix:
 
         if mask.shape != (self.nrow, 4 * self.ncolumn):
             raise ValueError(
-                f"mask shape must be ({self.nrow}, {4*self.ncolumn}), got {mask.shape}"
+                f'mask shape must be ({self.nrow}, {4*self.ncolumn}), got {mask.shape}'
             )
         return frame * mask
 
@@ -459,11 +346,11 @@ class epix:
     @staticmethod
     def binary_scatter(raw_mask: np.ndarray,
                        *,
-                       title: str = "Bad Pixels",
+                       title: str = 'Bad Pixels',
                        point_size: int = 3,
-                       color: str = "red",
-                       xlabel: str = "Column",
-                       ylabel: str = "Row",
+                       color: str = 'red',
+                       xlabel: str = 'Column',
+                       ylabel: str = 'Row',
                        figsize=(7, 5),
                        invert_y: bool = True) -> None:
 
@@ -473,7 +360,7 @@ class epix:
 
         x_bad = X[mask].ravel()
         y_bad = Y[mask].ravel()
-        print(f"bad pixels: {len(x_bad)}")
+        print(f'bad pixels: {len(x_bad)}')
 
         plt.figure(figsize=figsize)
         plt.title(title)

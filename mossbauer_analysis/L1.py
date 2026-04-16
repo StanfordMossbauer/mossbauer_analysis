@@ -8,7 +8,7 @@
 import os
 import struct
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta,timezone
 
 
 class L1BMDriver:
@@ -174,7 +174,7 @@ class L1BMDriver:
 
         usec = struct.unpack_from("<I", head40, 28)[0]
         sec  = struct.unpack_from("<I", head40, 36)[0]
-        dt = datetime.fromtimestamp(sec) + timedelta(microseconds=usec)
+        dt = datetime.fromtimestamp(sec,tz=timezone.utc) + timedelta(microseconds=usec)
         return dt, sec, usec
 
     def get_datetime(self, i: int):
