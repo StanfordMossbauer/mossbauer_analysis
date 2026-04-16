@@ -6,14 +6,11 @@ class L2ParaDriver(BaseFrameDriver):
     """
     Reader for L2Para side-stream files.
 
-    Per frame layout:
-      8B   SSI
-      32B  original header
-      2112 x uint32 image (22 x 96)
+    L2Para is the 122keV which defines from 100keV to 140keV;
 
-    Combined head is treated as 40B:
-      - word0, word1   : SSI
-      - word2 ... word9: original 32B header words
+    40Bytes Head; 
+    22*96 uint32 Data;
+    Compression Ratio 200, similar to L3 data; 
     """
 
     BY, BX = 22, 96

@@ -6,14 +6,12 @@ class L2SpectrumDriver(BaseFrameDriver):
     """
     Reader for L2Spectrum side-stream files.
 
-    Per frame layout:
-      8B   SSI
-      32B  original header
-      1460 x uint32 spectrum bins
+    1% of the energy spectrum of the whole detector; 
 
-    Combined head is treated as 40B:
-      - word0, word1   : SSI
-      - word2 ... word9: original 32B header words
+    40Bytes Head
+    1280bins from 0keV to 20keV
+    180bins from 20keV to 200keV
+    
     """
 
     NBINS = 1460

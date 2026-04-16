@@ -13,19 +13,11 @@ class epix(BaseFrameDriver):
     """
     Raw data driver + processing helper.
 
-    Per frame layout:
-      8B   SSI
-      32B  original header
-      main image body
-      tail area
 
-    Combined head is treated as 40B:
-      - word0, word1   : SSI
-      - word2 ... word9: original 32B header words
-
-    Direction:
-      - original header word4
-      - combined head word6
+    1% 4Hz, without any signal processing;
+    40 Bytes Head
+    274956 Bytes of Data; 
+    
     """
 
     def __init__(self,
