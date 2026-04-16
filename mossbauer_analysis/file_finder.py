@@ -17,6 +17,7 @@ def parse_file_datetime(fname, data_tz="America/Los_Angeles", L0_bug_fixed=False
     """
     The name of the filename is the time that we start the acquisition, and each hour the appendix of it increases by one; 
     Take caution that the L0 processed data does not apply this rule, because the file length of it is set incorrectly, and I do not want to restart the script; 
+    And also the L1 file is about 7minutes; 
     """
     base = os.path.basename(fname)
     m = re.match(r".*?(\d{8}_\d{6})\.dat\.(\d+)$", base)
@@ -34,6 +35,8 @@ def parse_file_datetime(fname, data_tz="America/Los_Angeles", L0_bug_fixed=False
     if base.upper().startswith("L0") and not L0_bug_fixed:
         hour_per_index = 270376 / 274996
         dt_local = dt_local + timedelta(hours=(idx - 1) * hour_per_index)
+    elif base.upper().startswith("L1"): 
+        dt_local = dt_local + timedelta(seconds=(idx - 1) * 435)
     else:
         dt_local = dt_local + timedelta(hours=idx - 1)
 
