@@ -1,45 +1,136 @@
 import numpy as np
-from base_driver import BaseFrameDriver
 
 
-class L0Driver(BaseFrameDriver):
-    """
-    Driver for the L0 Datafile; 
-    
-    L0 is processed frame after background noise substraction and common mode noise; 
-    1Hz (0.25%) sampled data; 
-    
-    Each file is 1 hour minus 20s because of some mistakes; 
+class doubleblock:
+    def __init__(self,
+                 mode,
+                 single_data=None,
+                 single_head=None,
+                 forward_data=None,
+                 forward_head=None,
+                 backward_data=None,
+                 backward_head=None,
+                 start=3,
+                 end=45,
+                 up=3,
+                 down=42,
+                 filter_mask=None):
+        self.mode = mode
+        self.single_data = single_data
+        self.single_head = single_head
+        self.forward_data = forward_data
+        self.forward_head = forward_head
+        self.backward_data = backward_data
+        self.backward_head = backward_head
 
-    Per frame layout:
-      40B  header, 10 words; 
-      176 x 768 uint16 image
-    """
+        self.start = start
+        self.end = end
+        self.up = up
+        self.down = down
 
-    NY, NX = 176, 768
-    NPIX = NY * NX
+        self.filter_mask = filter_mask
+        self.ds_flat = self.build_ds_flat()
 
-    DATA_BYTES = NPIX * 2                   # uint16
-    TAIL_BYTES = 4620
-    FRAME_BYTES = BaseFrameDriver.HEAD_BYTES + DATA_BYTES + TAIL_BYTES   # 274996
-    FRAME_U16 = FRAME_BYTES // 2            # 137498
-    DATA_U16 = DATA_BYTES // 2              # 135168
+    @classmethod
+    def from_reader(cls,
+                    double_reader,
+                    start=3,
+                    end=45,
+                    up=3,
+                    down=42,
+                    filter_mask=None):
+        if double_reader.mode == "single":
+            return cls(
+                mode="single",
+                single_data=double_reader.single_reader.data,
+                single_head=double_reader.single_reader.head,
+                start=start,
+                end=end,
+                up=up,
+                down=down,
+                filter_mask=filter_mask,
+            )
 
-    def __init__(self, fname):
-        super().__init__(fname)
-        self._data = None
+        if double_reader.mode == "double":
+            return cls(
+                mode="double",
+                forward_data=double_reader.forward_reader.data,
+                forward_head=double_reader.forward_reader.head,
+                backward_data=double_reader.backward_reader.data,
+                backward_head=double_reader.backward_reader.head,
+                start=start,
+                end=end,
+                up=up,
+                down=down,
+                filter_mask=filter_mask,
+            )
 
-    def load_data(self):
-        """
-        Return image data with shape (nframes, 176, 768), dtype uint16.
-        """
-        if self._data is not None:
-            return self._data
+        raise ValueError("double_reader mode is not valid.")
 
-        self._load_base()
-        body = self._blk[:, self.HEAD_U16 : self.HEAD_U16 + self.DATA_U16]
-        self._data = body.reshape(self._nframes, self.NY, self.NX)
-        return self._data
+    def build_base_mask(self):
+        ds = np.zeros((4, 44, 192), dtype=np.float32)
+        for i in range(4):
+            ds[i,
+               self.up:self.down,
+               self.start + 48 * i:self.end + 48 * i] = 1.0
+        return ds
 
-    def get_img(self, i):
-        return self.load_data()[i]
+    def build_ds_flat(self):
+        ds = self.build_base_mask()
+
+        if self.filter_mask is not None:
+            filt = np.asarray(self.filter_mask, dtype=np.float32)
+
+            if filt.shape == (44, 192):
+                ds = ds * filt[None, :, :]
+            elif filt.shape == (4, 44, 192):
+                ds = ds * filt
+            else:
+                raise ValueError(
+                    f"filter_mask shape must be (44,192) or (4,44,192), got {filt.shape}"
+                )
+
+        return ds.reshape(4, -1).T
+
+    def set_filter(self, filter_mask):
+        self.filter_mask = filter_mask
+        self.ds_flat = self.build_ds_flat()
+
+    @staticmethod
+    def count_one_block(data, head, ds_flat):
+        if data is None or head is None:
+            return np.zeros((2, 4), dtype=np.float64)
+
+        t_counts = data.reshape(data.shape[0], -1) @ ds_flat
+        word6 = head[:, 6]
+
+        out = np.zeros((2, 4), dtype=np.float64)
+        out[0] = t_counts[word6 == 0].sum(axis=0)
+        out[1] = t_counts[word6 == 1].sum(axis=0)
+        return out
+
+    def get16(self):
+        out = np.zeros((2, 2, 4), dtype=np.float64)
+
+        if self.mode == "single":
+            out[0] = self.count_one_block(
+                self.single_data,
+                self.single_head,
+                self.ds_flat
+            )
+            return out.reshape(-1)
+
+        if self.mode == "double":
+            out[0] = self.count_one_block(
+                self.forward_data,
+                self.forward_head,
+                self.ds_flat
+            )
+            out[1] = self.count_one_block(
+                self.backward_data,
+                self.backward_head,
+                self.ds_flat
+            )
+            return out.reshape(-1)
+
+        raise ValueError("Invalid mode.")

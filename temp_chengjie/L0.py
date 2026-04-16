@@ -4,16 +4,16 @@ from base_driver import BaseFrameDriver
 
 class L0Driver(BaseFrameDriver):
     """
-    Reader for L0 files.
+    Driver for the L0 Datafile; 
+    
+    L0 is processed frame after background noise substraction and common mode noise; 
+    1Hz (0.25%) sampled data; 
+    
+    Each file is 1 hour minus 20s because of some mistakes; 
 
     Per frame layout:
-      8B   SSI
-      32B  original header
+      40B  header, 10 words; 
       176 x 768 uint16 image
-
-    Combined head is treated as 40B:
-      - word0, word1   : SSI
-      - word2 ... word9: original 32B header words
     """
 
     NY, NX = 176, 768
