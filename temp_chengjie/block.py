@@ -5,7 +5,7 @@ from sql import sql
 
 from file_finder import find_files_in_range
 
-from mossbauer import mossbauer
+from L3 import L3Driver
 from L0 import L0Driver
 from L2P import L2ParaDriver
 from S2 import L2SpectrumDriver
@@ -114,7 +114,7 @@ def get_true_time_range(db, block_id, table="science_run1",
 class BlockDataReader:
     def __init__(self,
                  db=None,
-                 driver_cls=mossbauer,
+                 driver_cls=L3Driver,
                  directory="/data/share",
                  pattern="*.dat.*",
                  table="science_run1",
@@ -286,7 +286,7 @@ class DoubleBlockDataReader:
         self.db = sql() if db is None else db
         self.reader_cls = reader_cls
 
-        self.driver_cls = mossbauer
+        self.driver_cls = L3Driver
         self.directory = "/data/share"
         self.pattern = pattern
         self.table = table
