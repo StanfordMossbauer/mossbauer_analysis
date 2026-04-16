@@ -7,10 +7,6 @@ Au_density = 19.32  # g/cm3
 Au_mm = 197.  # g/mol
 nAu = Au_density / (Au_mm) * 6e23 * (100.**3) * 197  # number of nucleONS(!!) per m^3
 
-
-
-#from joey/surjeet
-
 def alpha_to_yukawa(alpha):
     """For down quark model"""
     return np.sqrt(4*np.pi*alpha) * (1/planck_mass) / kappa_d
@@ -28,6 +24,3 @@ def get_limits(r, deltaE):
     alpha_ann = (planck_mass)**2 / 4 / np.pi * (gnucsolve**2)
     yukawa_modulus = alpha_to_yukawa(alpha_ann)
     return yukawa_modulus, alpha_ann
-
-
-

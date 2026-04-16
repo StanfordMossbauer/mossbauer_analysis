@@ -6,6 +6,8 @@ import xraydb
 from datetime import datetime
 import matplotlib.pyplot as plt
 from numpy.polynomial.legendre import leggauss
+from scipy.interpolate import interp1d
+
 
 ############################################     CONSTANTS   #########################################################
 
@@ -67,7 +69,14 @@ def quartz_transmission(x, y, D, t_min=200e-6):
 
     return np.exp(-mu) 
 
+def ev_to_mms(E_ev, E0_ev):
+    return  E_ev / E0_ev * (c * 1000)
 
+def mms_to_ev(v_mms, E0_ev):
+    return v_mms * E0_ev / (c * 1000)
+
+def epsilon(t):
+    return 1-np.exp(-t/2)*jv(0,1j*t/2).real
 
 ############################################     SOURCE CLASSES   #########################################################
 class CobaltRhodium:
@@ -76,7 +85,7 @@ class CobaltRhodium:
         self.Td = 510
         self.E0 = 14.4e3
         self.Gamma_ev = 4.55e-9
-        self.Eres = [0]
+        self.Eres = [-0.11]  # from pipcorn
         self.split_ratio = [1]
         self.activity_Ci = 50e-3
         self.production_date = '20250112'
@@ -89,7 +98,7 @@ class CobaltRhodium:
         self.update_params()
     
     def update_params(self):
-        self.Gamma = self.Gamma_ev * c / self.E0 * 1000
+        self.Gamma_mms = ev_to_mms(self.Gamma_ev, self.E0)
         self.current_activity_Ci = get_current_activity(self.half_life, self.activity_Ci, self.production_date, self.date)
         self.mossbauer_photon_rate = calculate_photon_rate(self.current_activity_Ci, self.mossbauer_relative_intensity)
         self.fs = calculate_recoilless_fraction(self.T, self.Td, self.E0, self.M)
@@ -102,7 +111,7 @@ class CobaltFe:
         self.Td = 470
         self.E0 = 14.4e3
         self.Gamma_ev = 4.55e-9
-        self.Eres = [-5, -3, -1, 1, 3, 5]
+        self.Eres = [-5.48, -3.25, -1.01, 0.66, 2.90, 5.13] #from pipcorn
         self.split_ratio = [3, 2, 1, 1, 2, 3]
         self.activity_Ci = 50e-3
         self.production_date = '20250112'
@@ -115,7 +124,7 @@ class CobaltFe:
         self.update_params()
     
     def update_params(self):
-        self.Gamma = self.Gamma_ev * c / self.E0 * 1000
+        self.Gamma_mms = ev_to_mms(self.Gamma_ev, self.E0)
         self.current_activity_Ci = get_current_activity(self.half_life, self.activity_Ci, self.production_date, self.date)
         self.mossbauer_photon_rate = calculate_photon_rate(self.current_activity_Ci, self.mossbauer_relative_intensity)
         self.fs = calculate_recoilless_fraction(self.T, self.Td, self.E0, self.M)
@@ -132,7 +141,7 @@ class alphaFe:
         self.Td = 470
         self.E0 = 14.4e3
         self.Gamma_ev = 4.55e-9
-        self.Eres = [-5, -3, -1, 1, 3, 5]
+        self.Eres = [-5.48, -3.25, -1.01, 0.66, 2.90, 5.13] #from pipcorn
         self.split_ratio = [3, 2, 1, 1, 2, 3]
         self.abundance = 0.0212
         self.M = 57e-3 / Na
@@ -143,7 +152,7 @@ class alphaFe:
         self.update_params()
     
     def update_params(self):
-        self.Gamma = self.Gamma_ev * c / self.E0 * 1000
+        self.Gamma_mms = self.Gamma_ev * c / self.E0 * 1000
         self.mu_e = calculate_mu_e(self.element, self.E0)
         self.fa = calculate_recoilless_fraction(self.T, self.Td, self.E0, self.M)
         self.transition_coefficients = np.asarray(self.split_ratio, dtype=float) / np.sum(self.split_ratio)
@@ -171,7 +180,7 @@ class KFeCy:
         self.update_params()
     
     def update_params(self):
-        self.Gamma = self.Gamma_ev * c / self.E0 * 1000
+        self.Gamma_mms = self.Gamma_ev * c / self.E0 * 1000
         self.transition_coefficients = np.asarray(self.split_ratio, dtype=float) / np.sum(self.split_ratio)
         self.thickness_gcm2_Fe57 = self.thickness_gcm2_Fe * self.abundance
         self.thickness_normalized = self.fa * self.nM * self.sigma0 * self.thickness_gcm2_Fe57
@@ -231,7 +240,8 @@ class epix_camera:
        
         #Cosine broadening
         self.photon_angle_map = np.arctan(np.sqrt(self.X**2 + self.Y**2)/self.distance_sd)
-        self.relative_line_broadening_map = 1/np.cos(self.photon_angle_map)
+        self.cosine_map = np.cos(self.photon_angle_map)
+        self.relative_line_broadening_map = 1/self.cosine_map
         self.weighted_broadening = np.sum(self.relative_line_broadening_map*self.pixel_solid_angle_map)/self.pixel_solid_angle_map.sum()
 
 
@@ -278,7 +288,7 @@ class Mossbauer:
                 spectrum += coef *_lorentzian_s(
                     E,
                     Eres - v,
-                    self.source.Gamma
+                    self.source.Gamma_mms
                 )
         
         return self.source.fs  * spectrum
@@ -289,7 +299,7 @@ class Mossbauer:
             spectrum += coef *_lorentzian_a(
                 E,
                 Eres,
-                self.absorber.Gamma
+                self.absorber.Gamma_mms
             )
             
         return self.absorber.sigma0 * spectrum
@@ -308,6 +318,7 @@ class Mossbauer:
         res = quad_vec(lambda E: self.resonant_transmission_fraction(E,v), -np.inf, np.inf)[0] * self.non_resonant_attenuation()
         return res
     
+
     def nonresonant_transmission_rate(self):
         return (1 - self.source.fs)* self.non_resonant_attenuation()
 
@@ -318,7 +329,7 @@ class Mossbauer:
     #here add reemission and compton offset detected rates
 
     def compton_offset(self):
-        1*self.non_resonant_attenuation()/self.detector.snr14keV
+        return 1*self.non_resonant_attenuation()/self.detector.snr14keV
 
     def absorbtion_rate(self,v):
         return (self.source.fs-self.resonant_transmission_rate(v)) * self.detector.source_absorber_solid_angle/(4*np.pi)
@@ -340,13 +351,52 @@ class Mossbauer:
         return 1*self.non_resonant_attenuation()/self.detector.snr14keV
     
     def total_spectrum(self, v) :
-        return ( self.total_transmission_rate(v) 
+        return ( self.resonant_transmission_rate(v) 
+                + self.nonresonant_transmission_rate()
                 + self.reemission_rate(v) 
                 + self.compton_offset()
                )
+    
+    #### COSINE AVERAGED SPECTRUM ####
 
-    def epsilon(self,t):
-        return 1-np.exp(-t/2)*jv(0,1j*t/2).real
+    def resonant_transmission_rate_cosine_averaged(self, v):
+        # flatten
+        x = self.detector.cosine_map.ravel()
+        w = self.detector.pixel_solid_angle_map.ravel()
+
+        # bin once
+        n_bins = min(100, len(v))
+        hist, edges = np.histogram(x, bins=n_bins, weights=w)
+        x_bin = 0.5 * (edges[:-1] + edges[1:])
+        w_bin = hist / np.sum(hist)
+
+        # vectorized evaluation
+        v = np.atleast_1d(v)
+        u = v[:, None] * x_bin[None, :]
+
+        t_vals = self.resonant_transmission_rate(u)
+        t_avg = np.sum(t_vals * w_bin[None, :], axis=1)
+
+        return t_avg[0] if t_avg.size == 1 else t_avg
+    
+    def absorbtion_rate_cosine_averaged(self,v):
+        return (self.source.fs-self.resonant_transmission_rate_cosine_averaged(v)) * self.detector.source_absorber_solid_angle/(4*np.pi)
+    
+    def reemission_rate_cosine_averaged(self,v):
+        return (self.absorbtion_rate_cosine_averaged(v) *
+                self.readiative_branching() *
+                self.escape_probability() *
+                self.non_resonant_attenuation() *
+                self.detector.absorber_detector_solid_angle/self.detector.source_detector_solid_angle)
+    
+    def total_spectrum_cosine_averaged(self, v) :
+        return ( self.resonant_transmission_rate_cosine_averaged(v) 
+                + self.nonresonant_transmission_rate()
+                + self.reemission_rate_cosine_averaged(v) 
+                + self.compton_offset()
+               )
+
+
 
 
 if __name__ == "__main__":
@@ -365,8 +415,8 @@ if __name__ == "__main__":
     plt.plot(v, t/norm, label = 'Fe')
 
     plt.axhline((1-((t.max()-t.min())/2/t.max()))*moss.non_resonant_attenuation())
-    plt.axvline(-(source.Gamma + absorber.Gamma)/2)
-    plt.axvline((source.Gamma + absorber.Gamma)/2)
+    plt.axvline(-(source.Gamma_mms + absorber.Gamma_mms)/2)
+    plt.axvline((source.Gamma_mms + absorber.Gamma_mms)/2)
 
     plt.axhline((1 - source.fs)*moss.non_resonant_attenuation(),color = 'r')
     plt.axhline((1 - source.fs*moss.epsilon(absorber.thickness_normalized))*moss.non_resonant_attenuation(),color = 'g')

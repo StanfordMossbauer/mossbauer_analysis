@@ -10,7 +10,6 @@ from mossbauer_analysis.ironanalytics_load import read_ironanalytics_data, print
 import mossbauer_analysis.utils as u
 
 
-
 def update_fitparams_from_list(fitparams, p):
     """
     Update fit parameters from a flat array of parameters.
@@ -27,7 +26,7 @@ def update_fitparams_from_list(fitparams, p):
     return updated
 
 
-def fit_and_calibrate(params, fit_guess, calibrate_resonances=True, plot=True):
+def fit_and_calibrate(params, fit_guess, data = False, calibrate_resonances=True, plot=True):
     
     params = params.copy()
 
@@ -40,20 +39,48 @@ def fit_and_calibrate(params, fit_guess, calibrate_resonances=True, plot=True):
     fitfunction = params.get('fitfunction', None)
     calibration_resonances = params.get('calibration_resonances', [])
 
-    #load data
+
     dat = read_ironanalytics_data(directory, id, offset = offset)
-    x = dat.velocity_list
-    y = getattr(dat, f"data_{side}")
+    velocities = dat.velocity_list
+    counts = getattr(dat, f"data_{side}")
+    description = dat.description   
+
+    #load data
+    if data:
+        velocities = data[0]
+        counts = data[1]
+        description = "theory curve"
 
     #fit spectrum
+    x = velocities
+    y = counts
     p0 = np.concatenate([np.atleast_1d(v) for v in fit_guess.values()])
     p,dp = u.fit(fitfunction,x, y, p0,fullout=False)
     fit_result = update_fitparams_from_list(fit_guess, p)
     fit_result_errors = update_fitparams_from_list(fit_guess, dp) 
+
+    baseline = poly5((fit_result['poly'] + [0]*6)[:6], x)
     
     #evaluate fit
     norm_res = (y - fitfunction(p, x))/np.sqrt(fit_result['poly'][0])
     reduced_chi2 = np.sum(norm_res**2)/(len(y)-len(p))
+
+
+    #output parameters
+    params['description'] = description
+    params['fitfunction'] = fitfunction
+    params['reduced_chi2'] = reduced_chi2
+    params['total_rate'] = dat.data.sum()/dat.total_time
+    params['total_counts'] = dat.data.sum()
+    params['total_time'] = dat.total_time
+    params['total_rate_fit'] = fit_result['poly'][0]*len(dat.data)/dat.total_time
+    params['total_rate_fit_error'] = np.sqrt(fit_result['poly'][0]*len(dat.data))/dat.total_time
+    params['resonances'] = fit_result['resonances']
+    params['contrasts'] = fit_result['contrasts']
+    params['fullwidths'] = fit_result['fullwidths']
+    params['poly'] = fit_result['poly']
+    params['y'] = counts
+    params['x'] = velocities
 
 
     if plot:
@@ -61,15 +88,16 @@ def fit_and_calibrate(params, fit_guess, calibrate_resonances=True, plot=True):
         fig.suptitle(f"{dat.name}        {dat.description}        {side}        {fitfunction.__name__}") 
         ax[0,0].plot(x, y, '.', markersize = 2, label='data')
         ax[0,0].plot(x, fitfunction(p, x), 'k' ,label='fit')
-        ax[0,0].plot(x, poly5((fit_result['poly'] + [0]*6)[:6], x), 'k--',label='baseline')
+        ax[0,0].plot(x, baseline, 'k--', label='baseline')
+
         #ax[0,0].plot(x, fitfunction(p0, x), label='fit_guess')
         #ax[0,0].axhline(fit_result['poly'][0])
         text = (
-            f"relative noise: root(counts)/conunts {1/np.sqrt(fit_result.get('poly', 0)[0]): .3f}\n"
-            f"contrasts: {[f'{c:.3f}' for c in np.atleast_1d(fit_result.get('contrasts', 0))]}\n"
-            f"resonances: {[f'{r:.2f}' for r in np.atleast_1d(fit_result.get('resonances', 0))]}\n"
-            f"fullwidth: {fit_result.get('fullwidth', 0):.2f}\n"
-            f"poly: {[f'{p:.2e}' for p in fit_result.get('poly', 0)]}\n"
+            f"relative noise: root(counts)/conunts {1/np.sqrt(fit_result['poly'][0]): .3f}\n"
+            f"contrasts: {[f'{c:.3f}' for c in np.atleast_1d(fit_result['contrasts'])]}\n"
+            f"resonances: {[f'{r:.2f}' for r in np.atleast_1d(fit_result['resonances'])]}\n"
+            f"fullwidths: {[f'{r:.2f}' for r in np.atleast_1d(fit_result['fullwidths'])]}\n"
+            f"poly: {[f'{p:.2e}' for p in fit_result['poly']]}\n"
         )
 
         ax[0, 0].annotate(text,xy=(0.1, 0.1),xycoords='axes fraction', fontsize=9, color='k')
@@ -79,54 +107,53 @@ def fit_and_calibrate(params, fit_guess, calibrate_resonances=True, plot=True):
         ax[1,0].annotate(f"reduced chi2: {reduced_chi2:.2f}", xy=(0.1, 0.1), xycoords='axes fraction', fontsize=9, color='k')
 
     
+   
+
         
-        if calibrate_resonances:
-            def poly1(p,x):
-                return p[0] + p[1]*x
-            
-            
-            calib_fitfunction = poly1
-            p0 = [0,1]
+    if calibrate_resonances:
+        def poly1(p,x):
+            return p[0] + p[1]*x
+        
+        
+        calib_fitfunction = poly1
+        p0 = [0,1]
 
-            
-            x = np.array(fit_result['resonances'])
-            y = np.array(calibration_resonances)
-            #print(x,y)
-            dy = np.sqrt(((dat.velocity_max/512)/np.sqrt(12))**2 + np.array(fit_result_errors['resonances'])**2) # add uncertainty from velocity binning
-            #dy =  fit_result_errors['resonances']
-            #dy = ((dat.velocity_max/512)/np.sqrt(12))
-            p,dp = u.fit(calib_fitfunction, x, y, p0=p0, fullout = False)
-            norm_res = (y - calib_fitfunction(p,x))/dy
-            reduced_chi2_calib = np.sum(norm_res**2)/(len(y) - len(p))
-            
-            if plot: 
-                
-                ax[0,1].plot(x, y, '.')
-                ax[0,1].plot(np.linspace(-10,10,100), calib_fitfunction(p,np.linspace(-10,10,100)))
-                ax[0,1].plot(np.linspace(-10,10,100), calib_fitfunction(p0,np.linspace(-10,10,100)))
-                ax[0,1].annotate(f"calibration factor: real_v = {p[0]:.2f} + {p[1]:.2f}*measured_x", xy=(0.1, 0.1), xycoords='axes fraction', fontsize=9, color='k')
-                ax[0,1].set_xlim(-7,7) 
-                ax[1,1].plot(calibration_resonances, norm_res, '.')
-                ax[1,1].annotate(f"reduced chi2: {reduced_chi2_calib:.2f}\nfit: {calib_fitfunction.__name__}\n dy =rot([(b-a)/sqrt(12)]^2+dy_fit^2])", xy=(0.1, 0.1), xycoords='axes fraction', fontsize=9, color='k')
-                ax[1,1].set_xlim(-7,7)
-                pass
+        
+        x = np.array(fit_result['resonances'])
+        y = np.array(calibration_resonances)
+        #print(x,y)
+        dy = np.sqrt(((dat.velocity_max/512)/np.sqrt(12))**2 + np.array(fit_result_errors['resonances'])**2) # add uncertainty from velocity binning
+        #dy =  fit_result_errors['resonances']
+        #dy = ((dat.velocity_max/512)/np.sqrt(12))
+        p,dp = u.fit(calib_fitfunction, x, y, p0=p0, fullout = False)
+        norm_res = (y - calib_fitfunction(p,x))/dy
+        reduced_chi2_calib = np.sum(norm_res**2)/(len(y) - len(p))
+        p_calibration = p
+
+        params['velocity_calibration'] = p_calibration # real_width = C*measured width 
+        params['fullwidths_calibrated'] = list(p_calibration[1]*np.array(fit_result['fullwidths']))
+        params['x_calibrated'] = p_calibration[0] + p_calibration[1]*velocities
+        params['y_norm'] = counts/baseline # remove baseline and convert to counts/s
 
 
-    params['description'] = dat.description
-    params['fitfunction'] = fitfunction
-    params['reduced_chi2'] = reduced_chi2
-    params['total_rate'] = dat.data.sum()/dat.total_time
-    params['total_counts'] = dat.data.sum()
-    params['total_time'] = dat.total_time
-    params['total_rate_fit'] = fit_result.get('poly',0)[0]*len(dat.data)/dat.total_time
-    params['total_rate_fit_error'] = np.sqrt(fit_result.get('poly',0)[0]*len(dat.data))/dat.total_time
-    params['resonances'] = fit_result.get('resonances',0)
-    params['contrasts'] = fit_result.get('contrasts',0)
-    params['fullwidth'] = fit_result.get('fullwidth',0)
-    params['poly'] = fit_result.get('poly',0)
-    params['velocity_calibration'] = p # real_width = C*measured width 
-    params['y'] = getattr(dat, f"data_{side}")
-    params['x'] = dat.velocity_list
+            
+        if plot: 
+            
+            ax[0,1].plot(x, y, '.')
+            ax[0,1].plot(np.linspace(-10,10,100), calib_fitfunction(p_calibration,np.linspace(-10,10,100)))
+            ax[0,1].plot(np.linspace(-10,10,100), calib_fitfunction(p0,np.linspace(-10,10,100)))
+            ax[0,1].annotate(f"calibration factor: real_v = {p_calibration[0]:.2f} + {p_calibration[1]:.2f}*measured_x", xy=(0.1, 0.1), xycoords='axes fraction', fontsize=9, color='k')
+            ax[0,1].set_xlim(-7,7) 
+            ax[1,1].plot(calibration_resonances, norm_res, '.')
+            ax[1,1].annotate(f"reduced chi2: {reduced_chi2_calib:.2f}\nfit: {calib_fitfunction.__name__}\n dy =rot([(b-a)/sqrt(12)]^2+dy_fit^2])", xy=(0.1, 0.1), xycoords='axes fraction', fontsize=9, color='k')
+            ax[1,1].set_xlim(-7,7)
+            pass
+
+
+
+
+            
+
 
     return params
 

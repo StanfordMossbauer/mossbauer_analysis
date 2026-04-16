@@ -76,6 +76,21 @@ def six_peak_lorentzian_poly2(p, x):
     
     return offset * (1 + a1*x +  a2*x**2 + peaks)
 
+def six_peak_lorentzian3widths_poly2(p, x):
+    
+    c0, c1, c2, x0, x1, x2, x3, x4, x5, g0, g1, g2, offset, a1, a2 = p
+    constrasts = [c0, c1, c2, c2, c1, c0]
+    
+    resonances = [x0, x1, x2, x3, x4, x5]
+    fullwidths = [g0, g1, g2, g2, g1, g0]
+    peaks = np.zeros_like(x, dtype=float)
+
+
+    for c_i, x_i, g_i in zip(constrasts, resonances, fullwidths):
+        peaks += c_i*(g_i/2)**2 / ((x - x_i)**2 + (g_i/2)**2)
+    
+    return offset * (1 + a1*x +  a2*x**2 + peaks)
+
 
 def six_peak_lorentzian_poly3(p, x):
     
