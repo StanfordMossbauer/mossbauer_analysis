@@ -22,6 +22,11 @@ class sql:
         self.cur = self.conn.cursor()
 
 
+sql_writer = sql
+
+
+
+
 def get_values_in_timerange(db, t_start, t_end,
                             value_cols=("sp_current_set", "Vpp_set"),
                             table="science_run1"):

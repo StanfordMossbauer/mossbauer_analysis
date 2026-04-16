@@ -1,5 +1,5 @@
 import numpy as np
-from base_driver import BaseFrameDriver
+from .base_driver import BaseFrameDriver
 
 
 class L2SpectrumDriver(BaseFrameDriver):

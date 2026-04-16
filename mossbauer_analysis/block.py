@@ -1,15 +1,15 @@
 from datetime import datetime, timezone, timedelta
-from sql import get_values_in_timerange
+from .sql import get_values_in_timerange
 import numpy as np
-from sql import sql
+from .sql import sql
 
-from file_finder import find_files_in_range
+from .file_finder import find_files_in_range
 
-from L3 import L3Driver
-from L0 import L0Driver
-from L2P import L2ParaDriver
-from S2 import L2SpectrumDriver
-from raw import epix
+from .L3 import L3Driver
+from .L0 import L0Driver
+from .L2P import L2ParaDriver
+from .S2 import L2SpectrumDriver
+from .raw import epix
 
 
 # Give a base time, generate the corresponding block id

@@ -6,7 +6,7 @@ import re
 import numpy as np
 import bottleneck as bn
 from matplotlib import pyplot as plt
-from base_driver import BaseFrameDriver
+from .base_driver import BaseFrameDriver
 
 
 class epix(BaseFrameDriver):

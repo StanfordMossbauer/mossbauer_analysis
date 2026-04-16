@@ -1,5 +1,5 @@
 import numpy as np
-from base_driver import BaseFrameDriver
+from .base_driver import BaseFrameDriver
 
 
 # This is the driver for a single mossbauer file; 
