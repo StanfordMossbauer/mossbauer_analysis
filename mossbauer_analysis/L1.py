@@ -156,16 +156,21 @@ class L1BMDriver:
         if len(head40) < self.HEAD40_BYTES:
             raise RuntimeError("file too short to contain first L1BM frame header")
         return self._decode_time_from_head40(head40)[0]
-
+    #
+    get_first_time=read_first_time
+    
     def read_last_time(self):
         self._build_index()
         if self._nframes == 0:
             raise RuntimeError("no complete L1BM frame found")
         return self.get_datetime(self._nframes - 1)
-
+    get_last_time=read_last_time
+    
     def read_time_range(self):
         return self.read_first_time(), self.read_last_time()
-
+    # Equivalent
+    get_time_range=read_time_range
+    
     def get_shape(self, i: int):
         self._build_index()
         rec = self._index[i]
@@ -260,13 +265,17 @@ class L1BMDriver:
         if reconstruct_image:
             out["img"] = self.reconstruct(ny, nx, mask, vals, fill=fill_value, dtype=dtype)
         return out
-
+    # Equivalent Functions; 
+    get_one_frame_from_file=read_one_frame_from_file
+    
     def read_first(self, reconstruct_image=True, fill_value=0, dtype=np.uint16):
         with open(self.fname, "rb") as f:
             frame = self.read_one_frame_from_file(f, reconstruct_image=reconstruct_image, fill_value=fill_value, dtype=dtype)
         if frame is None:
             raise RuntimeError("empty file or no complete L1BM frame")
         return frame
+    # Equivalent Functions; 
+    get_first= read_first
 
     def iter_frames(self, reconstruct_image=False, fill_value=0, dtype=np.uint16):
         with open(self.fname, "rb") as f:

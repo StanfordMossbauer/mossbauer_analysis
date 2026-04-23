@@ -118,7 +118,8 @@ class BaseFrameDriver:
             if len(head40) < self.HEAD_BYTES:
                 raise RuntimeError('file too short to contain first frame header')
         return self._decode_time_from_head40(head40)[0]
-
+    get_first_time=read_first_time
+    
     def read_last_time(self):
         frame_bytes = self._get_frame_bytes()
         byte_size = os.path.getsize(self.fname)
@@ -138,10 +139,13 @@ class BaseFrameDriver:
                 raise RuntimeError('failed to read last frame header')
 
         return self._decode_time_from_head40(head40)[0]
-
+    get_last_time=read_last_time
+    
     def read_time_range(self):
         return self.read_first_time(), self.read_last_time()
-
+    get_time_range=read_time_range
+    
+    
     def convert_image(image: np.ndarray) -> np.ndarray:
         row, col4 = image.shape
         col = col4 // 4
